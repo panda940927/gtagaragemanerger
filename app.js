@@ -2,7 +2,7 @@ let cars = [];
 let nameCount = {};
 let carNames = {};
 
-fetch("https://docs.google.com/spreadsheets/d/e/2PACX-1vRLMSXEUjhen7SnHhiGSbKut1T4wmULYu7EuwKw3H6zkFQ6Z79u1MH8qscf6p0LwQ/pub?output=csv")
+fetch("https://docs.google.com/spreadsheets/d/1ngihsglCAWUUFCVOSJZSt3P4Pscxrr2q/gviz/tq?tqx=out:csv")
   .then(res => res.text())
   .then(text => {
     const rows = text.trim().split("\n");
