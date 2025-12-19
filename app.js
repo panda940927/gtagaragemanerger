@@ -67,7 +67,7 @@ function initFilters() {
 
 function fillSelect(id, key) {
   const select = document.getElementById(id);
-  [...new Set(cars.map(c => c[key]))].forEach(v => {
+  [...new Set(cars.map(c => c[key]).filter(v => v))].forEach(v => {
     const opt = document.createElement("option");
     opt.value = v;
     opt.textContent = v;
@@ -132,7 +132,10 @@ function filter() {
 
 function render(list) {
   const tbody = document.querySelector("#resultTable tbody");
+  const countDiv = document.getElementById("resultCount");
   tbody.innerHTML = "";
+
+  countDiv.textContent = `搜尋結果：${list.length} 筆`;
 
   if (list.length === 0) {
     tbody.innerHTML = "<tr><td colspan='5'>找不到</td></tr>";
