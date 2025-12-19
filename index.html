@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>GTA 車庫管理系統</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h1>🚗 GTA 車庫管理系統</h1>
+
+<section>
+  <h2>🔍 模糊搜尋</h2>
+  <input id="searchInput" placeholder="輸入車名（可打一半）">
+</section>
+
+<section>
+  <h2>📂 分類篩選</h2>
+  <select id="garageFilter"><option value="">所有車庫</option></select>
+  <select id="typeFilter"><option value="">所有車型</option></select>
+  <select id="brandFilter"><option value="">所有廠牌</option></select>
+</section>
+
+<section>
+  <h2>📋 車輛列表</h2>
+  <table id="resultTable">
+    <thead>
+      <tr>
+        <th>車庫</th>
+        <th>車型</th>
+        <th>廠牌</th>
+        <th>車名</th>
+        <th>狀態</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>
