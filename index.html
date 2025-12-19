@@ -11,7 +11,10 @@
 
 <section>
   <h2>🔍 模糊搜尋</h2>
-  <input id="searchInput" placeholder="輸入車名（可打一半）">
+  <div style="position: relative;">
+    <input id="searchInput" placeholder="輸入車名（可打一半）" autocomplete="off">
+    <div id="autocompleteList" class="autocomplete"></div>
+  </div>
 </section>
 
 <section>
@@ -19,6 +22,10 @@
   <select id="garageFilter"><option value="">所有車庫</option></select>
   <select id="typeFilter"><option value="">所有車型</option></select>
   <select id="brandFilter"><option value="">所有廠牌</option></select>
+  <label style="margin-left:10px;">
+    <input type="checkbox" id="mergeToggle">
+    合併同名車（顯示多個車庫）
+  </label>
 </section>
 
 <section>

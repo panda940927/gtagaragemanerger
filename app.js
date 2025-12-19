@@ -79,19 +79,53 @@ document.getElementById("searchInput").addEventListener("input", filter);
 document.getElementById("garageFilter").addEventListener("change", filter);
 document.getElementById("typeFilter").addEventListener("change", filter);
 document.getElementById("brandFilter").addEventListener("change", filter);
+document.getElementById("mergeToggle").addEventListener("change", filter);
 
 function filter() {
   const kw = document.getElementById("searchInput").value.toLowerCase();
   const g = garageFilter.value;
   const t = typeFilter.value;
   const b = brandFilter.value;
+  const merge = document.getElementById("mergeToggle").checked;
 
-  const result = cars.filter(c =>
+  // 依條件過濾（不改原始順序）
+  let filtered = cars.filter(c =>
     (c["車名"] || "").toLowerCase().includes(kw) &&
     (!g || c["車庫"] === g) &&
     (!t || c["車型"] === t) &&
     (!b || c["廠牌"] === b)
   );
+
+  if (!merge) {
+    render(filtered);
+    return;
+  }
+
+  // 只取重複車名
+  const duplicatedNames = new Set(
+    Object.keys(nameCount).filter(name => nameCount[name] > 1)
+  );
+
+  // 依「第一次出現順序」建立群組
+  const groups = {};
+  const order = [];
+
+  filtered.forEach(c => {
+    const name = c["車名"];
+    if (!duplicatedNames.has(name)) return;
+
+    if (!groups[name]) {
+      groups[name] = [];
+      order.push(name);
+    }
+    groups[name].push(c);
+  });
+
+  // 依群組順序攤平成列表（同名一定排在一起）
+  const result = [];
+  order.forEach(name => {
+    groups[name].forEach(c => result.push(c));
+  });
 
   render(result);
 }
