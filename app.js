@@ -1,11 +1,12 @@
 let cars = [];
 let nameCount = {};
+let carNames = {};
 
 fetch("cars.csv")
   .then(res => res.text())
   .then(text => {
     const rows = text.trim().split("\n");
-    const headers = rows.shift().split(",");
+    const headers = rows.shift().replace(/\uFEFF/g, "").split(",");
 
     cars = rows.map(r => {
       const v = r.split(",");
@@ -15,6 +16,7 @@ fetch("cars.csv")
     });
 
     countDuplicates();
+    initAutocomplete();
     initFilters();
     render(cars);
   });
@@ -23,6 +25,32 @@ function countDuplicates() {
   nameCount = {};
   cars.forEach(c => {
     nameCount[c["車名"]] = (nameCount[c["車名"]] || 0) + 1;
+  });
+}
+
+function initAutocomplete() {
+  carNames = [...new Set(cars.map(c => c["車名"]))];
+  const input = document.getElementById("searchInput");
+  const list = document.getElementById("autocompleteList");
+
+  input.addEventListener("input", () => {
+    const value = input.value.toLowerCase();
+    list.innerHTML = "";
+    if (!value) return;
+
+    carNames
+      .filter(name => name.toLowerCase().includes(value))
+      .slice(0, 5)
+      .forEach(name => {
+        const item = document.createElement("div");
+        item.textContent = name;
+        item.onclick = () => {
+          input.value = name;
+          list.innerHTML = "";
+          filter();
+        };
+        list.appendChild(item);
+      });
   });
 }
 
