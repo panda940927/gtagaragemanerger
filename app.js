@@ -9,9 +9,9 @@ fetch("cars.csv")
     const headers = rows.shift().replace(/\uFEFF/g, "").split(",");
 
     cars = rows.map(r => {
-      const v = r.split(",");
+      const v = r.replace(/\r/g, "").split(",");
       let o = {};
-      headers.forEach((h, i) => o[h] = v[i]);
+      headers.forEach((h, i) => o[h] = (v[i] ?? "").trim());
       return o;
     });
 
@@ -29,7 +29,7 @@ function countDuplicates() {
 }
 
 function initAutocomplete() {
-  carNames = [...new Set(cars.map(c => c["車名"]))];
+  carNames = [...new Set(cars.map(c => c["車名"]).filter(n => n))];
   const input = document.getElementById("searchInput");
   const list = document.getElementById("autocompleteList");
 
@@ -82,7 +82,7 @@ function filter() {
   const b = brandFilter.value;
 
   const result = cars.filter(c =>
-    c["車名"].toLowerCase().includes(kw) &&
+    (c["車名"] || "").toLowerCase().includes(kw) &&
     (!g || c["車庫"] === g) &&
     (!t || c["車型"] === t) &&
     (!b || c["廠牌"] === b)
