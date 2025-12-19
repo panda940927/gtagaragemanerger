@@ -6,7 +6,12 @@ fetch("cars.csv")
   .then(res => res.text())
   .then(text => {
     const rows = text.trim().split("\n");
-    const headers = rows.shift().replace(/\uFEFF/g, "").split(",");
+    const headers = rows
+      .shift()
+      .replace(/\uFEFF/g, "")
+      .replace(/\r/g, "")
+      .split(",")
+      .map(h => h.trim());
 
     cars = rows.map(r => {
       const v = r.replace(/\r/g, "").split(",");
