@@ -2,14 +2,11 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { initializeApp } from "firebase/app";
 import { 
   getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, 
-  onSnapshot, setDoc, writeBatch, query 
+  onSnapshot, setDoc, writeBatch 
 } from "firebase/firestore";
 import { 
   getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged 
 } from "firebase/auth";
-import { 
-  Search, Plus, Package, Edit2, Trash2, Move, Download, Upload, AlertCircle, X, ChevronRight
-} from "lucide-react";
 
 // --- Firebase 配置 ---
 const firebaseConfig = JSON.parse(__firebase_config);
@@ -17,6 +14,58 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'gta-garage-manager';
+
+// --- 自定義圖標 (替代 lucide-react) ---
+const Icon = ({ name, size = 16, className = "" }) => {
+  const icons = {
+    search: <path d="m21 21-4.3-4.3M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z" />,
+    plus: <path d="M5 12h14m-7-7v14" />,
+    package: (
+      <>
+        <path d="M16.5 9.4 7.5 4.21"/>
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
+        <polyline points="3.29 7 12 12 20.71 7"/>
+        <line x1="12" y1="22" x2="12" y2="12"/>
+      </>
+    ),
+    edit: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />,
+    trash: <path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2m-6 5v6m4-6v6" />,
+    move: (
+      <>
+        <polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/>
+      </>
+    ),
+    download: (
+      <>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+      </>
+    ),
+    upload: (
+      <>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+      </>
+    ),
+    alert: (
+      <>
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </>
+    ),
+    x: <path d="M18 6 6 18M6 6l12 12" />,
+    chevron: <path d="m9 18 6-6-6-6" />
+  };
+
+  return (
+    <svg 
+      width={size} height={size} 
+      viewBox="0 0 24 24" fill="none" 
+      stroke="currentColor" strokeWidth="2" 
+      strokeLinecap="round" strokeLinejoin="round" 
+      className={className}
+    >
+      {icons[name]}
+    </svg>
+  );
+};
 
 // --- 常數與樣式 ---
 const C = {
@@ -62,7 +111,7 @@ const Modal = ({ title, children, onClose }) => (
     <div className="bg-[#111118] border-t-4 border-[#f5c400] rounded-xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
       <div className="flex justify-between items-center p-4 border-b border-gray-800">
         <h3 className="text-[#f5c400] font-black uppercase tracking-widest text-sm">{title}</h3>
-        <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={20}/></button>
+        <button onClick={onClose} className="text-gray-500 hover:text-white"><Icon name="x" size={20}/></button>
       </div>
       <div className="p-6">{children}</div>
     </div>
@@ -102,7 +151,8 @@ export default function App() {
       }
     };
     initAuth();
-    return onAuthStateChanged(auth, setUser);
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
   }, []);
 
   // Firestore 資料監聽
@@ -115,7 +165,10 @@ export default function App() {
     const unsubV = onSnapshot(vCol, (snap) => {
       setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
-    }, (err) => console.error(err));
+    }, (err) => {
+      console.error(err);
+      setLoading(false);
+    });
 
     const unsubG = onSnapshot(gCol, (snap) => {
       const g = {};
@@ -174,7 +227,6 @@ export default function App() {
   };
 
   const deleteVehicle = async (id) => {
-    // 使用自定義確認邏輯或簡單 confirm (環境允許下)
     if (!window.confirm("確定要刪除這輛車嗎？")) return;
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vehicles', id));
@@ -205,12 +257,16 @@ export default function App() {
     const rows = lines.slice(1);
     
     rows.forEach(line => {
-      const [garage, brand, name, note] = line.split(",").map(s => s.trim());
+      const parts = line.split(",").map(s => s.trim());
+      const garage = parts[0] || "預設車庫";
+      const brand = parts[1] || "";
+      const name = parts[2] || "";
+      const note = parts[3] || "";
+      
       if (name) {
         const vRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'vehicles'));
         batch.set(vRef, { 車庫: garage, 廠牌: brand, 車名: name, 備註: note, createdAt: Date.now() });
         
-        // 如果車庫不存在，自動建立預設 10 格
         if (!garages[garage]) {
           const gRef = doc(db, 'artifacts', appId, 'public', 'data', 'garages', garage);
           batch.set(gRef, { capacity: 10 });
@@ -259,7 +315,7 @@ export default function App() {
   const duplicates = useMemo(() => {
     const counts = {};
     vehicles.forEach(v => {
-      const k = v.車名.trim();
+      const k = (v.車名 || "").trim();
       if (!k) return;
       counts[k] = (counts[k] || []);
       counts[k].push(v);
@@ -279,21 +335,21 @@ export default function App() {
           <h1 className="font-black tracking-tighter text-xl italic uppercase">Garage <span className="text-[#f5c400]">Manager</span></h1>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => fileRef.current.click()} className="p-2 text-gray-400 hover:text-white transition-colors" title="匯入 CSV"><Upload size={20}/></button>
+          <button onClick={() => fileRef.current.click()} className="p-2 text-gray-400 hover:text-white transition-colors" title="匯入 CSV"><Icon name="upload" size={20}/></button>
           <input type="file" ref={fileRef} className="hidden" accept=".csv" onChange={handleCSV} />
-          <button onClick={exportCSV} className="p-2 text-gray-400 hover:text-white transition-colors" title="匯出 CSV"><Download size={20}/></button>
-          <button onClick={() => setModal("add")} className="bg-[#f5c400] text-black p-2 rounded-lg font-bold hover:bg-[#b38f00] transition-colors"><Plus size={20}/></button>
+          <button onClick={exportCSV} className="p-2 text-gray-400 hover:text-white transition-colors" title="匯出 CSV"><Icon name="download" size={20}/></button>
+          <button onClick={() => setModal("add")} className="bg-[#f5c400] text-black p-2 rounded-lg font-bold hover:bg-[#b38f00] transition-colors"><Icon name="plus" size={20}/></button>
         </div>
       </header>
 
       {/* Stats & Search */}
       <div className="p-4 space-y-4">
         <div className="flex gap-4">
-          <div className="flex-1 bg-[#111118] border border-gray-800 p-4 rounded-xl text-center">
+          <div className="flex-1 bg-[#111118] border border-gray-800 p-4 rounded-xl text-center shadow-lg shadow-black/50">
             <div className="text-2xl font-black text-[#f5c400] leading-none">{vehicles.length}</div>
             <div className="text-[10px] text-gray-500 uppercase mt-1 tracking-widest">總車輛</div>
           </div>
-          <div className="flex-1 bg-[#111118] border border-gray-800 p-4 rounded-xl text-center">
+          <div className="flex-1 bg-[#111118] border border-gray-800 p-4 rounded-xl text-center shadow-lg shadow-black/50">
             <div className="text-2xl font-black text-[#f5c400] leading-none">{garageNames.length}</div>
             <div className="text-[10px] text-gray-500 uppercase mt-1 tracking-widest">車庫數</div>
           </div>
@@ -301,16 +357,16 @@ export default function App() {
 
         <div className="flex gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" size={16}/>
+            <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
             <input 
-              className="w-full bg-[#111118] border border-gray-800 rounded-lg pl-10 pr-4 py-2 outline-none focus:border-[#f5c400]"
+              className="w-full bg-[#111118] border border-gray-800 rounded-lg pl-10 pr-4 py-2 outline-none focus:border-[#f5c400] transition-colors"
               placeholder="搜尋車名、廠牌..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           <select 
-            className="bg-[#111118] border border-gray-800 rounded-lg px-3 py-2 outline-none focus:border-[#f5c400]"
+            className="bg-[#111118] border border-gray-800 rounded-lg px-3 py-2 outline-none focus:border-[#f5c400] transition-colors"
             value={filterG}
             onChange={(e) => setFilterG(e.target.value)}
           >
@@ -324,14 +380,14 @@ export default function App() {
             onClick={() => setModal("dupes")}
             className="flex-none flex items-center gap-1 text-xs font-bold border border-gray-800 px-3 py-1.5 rounded-full hover:bg-gray-800 transition-colors"
            >
-            <AlertCircle size={14} className={duplicates.length ? "text-red-500" : ""}/> 
-            重複檢查 {duplicates.length > 0 && <span className="bg-red-500 text-white px-1.5 rounded-full text-[10px]">{duplicates.length}</span>}
+            <Icon name="alert" size={14} className={duplicates.length ? "text-red-500" : "text-gray-500"}/> 
+            重複檢查 {duplicates.length > 0 && <span className="bg-red-500 text-white px-1.5 rounded-full text-[10px] ml-1">{duplicates.length}</span>}
            </button>
            <button 
             onClick={() => setModal("garage")}
             className="flex-none flex items-center gap-1 text-xs font-bold border border-gray-800 px-3 py-1.5 rounded-full hover:bg-gray-800 transition-colors"
            >
-            <Package size={14}/> 建立車庫
+            <Icon name="package" size={14} className="text-gray-500"/> 建立車庫
            </button>
         </div>
       </div>
@@ -339,46 +395,46 @@ export default function App() {
       {/* Garage List */}
       <main className="p-4 space-y-8 pb-24">
         {loading ? (
-          <div className="py-20 text-center text-gray-600 animate-pulse tracking-widest">讀取圖資中...</div>
+          <div className="py-20 text-center text-gray-600 animate-pulse tracking-widest font-black uppercase italic">載入車庫資料中...</div>
         ) : displayGarages.length === 0 ? (
           <div className="py-20 text-center text-gray-600">無符合條件的車庫數據</div>
         ) : displayGarages.map(garage => {
           const cars = filteredVehicles.filter(v => v.車庫 === garage);
           const cap = garages[garage] || 10;
-          const used = vehicles.filter(v => v.車庫 === garage).length;
-          const empty = Math.max(0, cap - used);
+          const usedInThisGarage = vehicles.filter(v => v.車庫 === garage).length;
+          const emptySlotsCount = Math.max(0, cap - usedInThisGarage);
 
           return (
             <div key={garage} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="flex justify-between items-end mb-2">
                 <h2 className="font-black italic text-lg tracking-tight uppercase flex items-center gap-2">
-                  <ChevronRight size={18} className="text-[#f5c400]"/> {garage}
+                  <Icon name="chevron" size={18} className="text-[#f5c400]"/> {garage}
                 </h2>
-                <span className={`text-[10px] font-bold ${used >= cap ? 'text-red-500' : 'text-gray-500'}`}>
-                  {used} / {cap} 容納
+                <span className={`text-[10px] font-bold ${usedInThisGarage >= cap ? 'text-red-500' : 'text-gray-500'}`}>
+                  {usedInThisGarage} / {cap} 容納
                 </span>
               </div>
-              <CapBar used={used} cap={cap} />
-              <div className="space-y-2">
+              <CapBar used={usedInThisGarage} cap={cap} />
+              <div className="grid gap-2">
                 {cars.map((v, i) => (
-                  <div key={v.id} className="group bg-[#111118] border border-gray-800 p-3 rounded-lg flex items-center gap-4 hover:border-gray-600 transition-all">
+                  <div key={v.id} className="group bg-[#111118] border border-gray-800 p-3 rounded-lg flex items-center gap-4 hover:border-gray-600 transition-all shadow-md">
                     <div className="text-[10px] font-mono text-gray-700 w-4">{i + 1}</div>
                     <div className="flex-1 min-w-0">
                       <div className="font-bold truncate text-sm">{v.車名}</div>
-                      <div className="flex gap-2 mt-1">
-                        {v.廠牌 && <span className="text-[9px] bg-black/40 border border-gray-800 px-1.5 py-0.5 rounded text-gray-500 uppercase">{v.廠牌}</span>}
-                        {v.備註 && <span className="text-[9px] text-gray-600 truncate italic">{v.備註}</span>}
+                      <div className="flex gap-2 mt-1 overflow-x-auto no-scrollbar">
+                        {v.廠牌 && <span className="flex-none text-[9px] bg-black/40 border border-gray-800 px-1.5 py-0.5 rounded text-gray-500 uppercase">{v.廠牌}</span>}
+                        {v.備註 && <span className="flex-none text-[9px] text-gray-600 italic whitespace-nowrap">{v.備註}</span>}
                       </div>
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => { setSelected(v); setForm(v); setModal("edit"); }} className="p-1.5 hover:text-[#f5c400]"><Edit2 size={14}/></button>
-                      <button onClick={() => { setSelected(v); setModal("move"); }} className="p-1.5 hover:text-blue-400"><Move size={14}/></button>
-                      <button onClick={() => deleteVehicle(v.id)} className="p-1.5 hover:text-red-500"><Trash2 size={14}/></button>
+                      <button onClick={() => { setSelected(v); setForm(v); setModal("edit"); }} className="p-1.5 hover:text-[#f5c400] transition-colors"><Icon name="edit" size={14}/></button>
+                      <button onClick={() => { setSelected(v); setModal("move"); }} className="p-1.5 hover:text-blue-400 transition-colors"><Icon name="move" size={14}/></button>
+                      <button onClick={() => deleteVehicle(v.id)} className="p-1.5 hover:text-red-500 transition-colors"><Icon name="trash" size={14}/></button>
                     </div>
                   </div>
                 ))}
-                {empty > 0 && Array.from({ length: Math.min(empty, 5) }).map((_, i) => (
-                  <div key={`empty-${i}`} className="border border-dashed border-gray-900 h-10 rounded-lg flex items-center justify-center text-[10px] text-gray-800 tracking-widest font-bold uppercase">
+                {emptySlotsCount > 0 && Array.from({ length: Math.min(emptySlotsCount, 5) }).map((_, i) => (
+                  <div key={`empty-${i}`} className="border border-dashed border-gray-900 h-10 rounded-lg flex items-center justify-center text-[10px] text-gray-800 tracking-widest font-bold uppercase select-none">
                     空車位
                   </div>
                 ))}
@@ -404,7 +460,7 @@ export default function App() {
           <input className={inputStyle} value={form.車名} onChange={e => setForm({...form, 車名: e.target.value})} placeholder="例如: Zentorno"/>
           <label className={labelStyle}>備註</label>
           <input className={inputStyle} value={form.備註} onChange={e => setForm({...form, 備註: e.target.value})} placeholder="自訂標記..."/>
-          <button onClick={addVehicle} className="w-full bg-[#f5c400] text-black font-black py-3 rounded-lg uppercase tracking-widest hover:bg-white transition-colors">確認新增</button>
+          <button onClick={addVehicle} className="w-full bg-[#f5c400] text-black font-black py-3 rounded-lg uppercase tracking-widest hover:bg-white transition-colors shadow-lg shadow-[#f5c400]/20">確認新增</button>
         </Modal>
       )}
 
@@ -422,10 +478,10 @@ export default function App() {
 
       {modal === "move" && selected && (
         <Modal title="移動車輛" onClose={() => setModal(null)}>
-          <div className="bg-black/40 p-3 rounded-lg mb-6 border border-gray-800">
+          <div className="bg-black/40 p-3 rounded-lg mb-6 border border-gray-800 shadow-inner">
             <div className="text-xs text-gray-500 uppercase mb-1">正在移動</div>
             <div className="font-bold text-[#f5c400]">{selected.車名}</div>
-            <div className="text-[10px] text-gray-600 mt-1">目前位置: {selected.車庫}</div>
+            <div className="text-[10px] text-gray-600 mt-1 uppercase tracking-tighter">目前位置: {selected.車庫}</div>
           </div>
           <label className={labelStyle}>目標車庫</label>
           <select className={inputStyle} value={moveTarget} onChange={e => setMoveTarget(e.target.value)}>
@@ -435,7 +491,7 @@ export default function App() {
               return <option key={g} value={g} disabled={full}>{g} {full ? '(已滿)' : ''}</option>;
             })}
           </select>
-          <button onClick={moveVehicle} className="w-full bg-[#f5c400] text-black font-black py-3 rounded-lg uppercase tracking-widest hover:bg-white transition-colors">確認移動</button>
+          <button onClick={moveVehicle} className="w-full bg-[#f5c400] text-black font-black py-3 rounded-lg uppercase tracking-widest hover:bg-white transition-colors shadow-lg shadow-[#f5c400]/20">確認移動</button>
         </Modal>
       )}
 
@@ -455,16 +511,16 @@ export default function App() {
             {duplicates.length === 0 ? (
               <div className="text-center py-10 text-gray-600 italic">尚未發現重複的車輛</div>
             ) : duplicates.map(([name, list]) => (
-              <div key={name} className="border border-gray-800 rounded-lg p-3">
-                <div className="flex justify-between mb-2">
-                  <div className="font-bold text-[#f5c400]">{name}</div>
-                  <div className="text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded font-black italic">{list.length}x</div>
+              <div key={name} className="border border-gray-800 rounded-lg p-3 bg-black/20">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="font-bold text-[#f5c400] text-sm uppercase">{name}</div>
+                  <div className="text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded font-black italic shadow-sm">{list.length}x</div>
                 </div>
                 <div className="space-y-1">
                   {list.map(v => (
-                    <div key={v.id} className="text-[10px] flex justify-between text-gray-500 border-t border-gray-900 pt-1">
-                      <span>{v.車庫}</span>
-                      <span className="italic opacity-50">{v.備註 || "無備註"}</span>
+                    <div key={v.id} className="text-[10px] flex justify-between text-gray-500 border-t border-gray-900 pt-1.5 mt-1.5">
+                      <span className="font-bold">{v.車庫}</span>
+                      <span className="italic opacity-50 truncate max-w-[50%]">{v.備註 || "-"}</span>
                     </div>
                   ))}
                 </div>
@@ -480,8 +536,9 @@ export default function App() {
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #000; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #444; }
       `}</style>
     </div>
   );
