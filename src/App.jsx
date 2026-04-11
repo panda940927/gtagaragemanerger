@@ -1,183 +1,120 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { initializeApp } from "firebase/app";
-import { 
-  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, 
-  onSnapshot, setDoc, writeBatch 
+import { useState, useEffect, useRef } from "react";
+import {
+  collection, doc, addDoc, updateDoc, deleteDoc,
+  onSnapshot, setDoc, getDocs, writeBatch
 } from "firebase/firestore";
-import { 
-  getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged 
-} from "firebase/auth";
+import { db } from "./firebase";
 
-// --- Firebase 配置 ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'gta-garage-manager';
-
-// --- 自定義圖標 (替代 lucide-react) ---
-const Icon = ({ name, size = 16, className = "" }) => {
-  const icons = {
-    search: <path d="m21 21-4.3-4.3M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z" />,
-    plus: <path d="M5 12h14m-7-7v14" />,
-    package: (
-      <>
-        <path d="M16.5 9.4 7.5 4.21"/>
-        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
-        <polyline points="3.29 7 12 12 20.71 7"/>
-        <line x1="12" y1="22" x2="12" y2="12"/>
-      </>
-    ),
-    edit: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />,
-    trash: <path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2m-6 5v6m4-6v6" />,
-    move: (
-      <>
-        <polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/>
-      </>
-    ),
-    download: (
-      <>
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-      </>
-    ),
-    upload: (
-      <>
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-      </>
-    ),
-    alert: (
-      <>
-        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-      </>
-    ),
-    x: <path d="M18 6 6 18M6 6l12 12" />,
-    chevron: <path d="m9 18 6-6-6-6" />
-  };
-
-  return (
-    <svg 
-      width={size} height={size} 
-      viewBox="0 0 24 24" fill="none" 
-      stroke="currentColor" strokeWidth="2" 
-      strokeLinecap="round" strokeLinejoin="round" 
-      className={className}
-    >
-      {icons[name]}
-    </svg>
-  );
-};
-
-// --- 常數與樣式 ---
+// ── constants ──────────────────────────────────────────────────────────────
 const C = {
-  bg: "#09090e",
-  panel: "#111118",
-  border: "#1e1e2e",
-  accent: "#f5c400",
-  accentD: "#b38f00",
-  red: "#e63946",
-  green: "#2ecc71",
-  muted: "#6b6b85",
-  text: "#ddddf0",
+  bg:       "#09090e",
+  panel:    "#111118",
+  border:   "#1e1e2e",
+  accent:   "#f5c400",
+  accentD:  "#b38f00",
+  red:      "#e63946",
+  green:    "#2ecc71",
+  muted:    "#6b6b85",
+  text:     "#ddddf0",
 };
 
-// --- 組件 ---
+const css = String.raw;
+const globalStyle = css`
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: ${C.bg}; color: ${C.text}; font-family: 'Rajdhani', sans-serif; -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: ${C.panel}; } ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 2px; }
+  select, input, option { font-family: inherit; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes slideUp { from { opacity:0; transform:translateY(40px); } to { opacity:1; transform:translateY(0); } }
+`;
 
-const Toast = ({ toast }) => {
+// ── helpers ────────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.trim().split("\n").filter(Boolean);
+  if (lines.length < 2) return { vehicles: [], garages: {} };
+  const headers = lines[0].split(",").map(h => h.trim());
+  const garages = {};
+  const vehicles = lines.slice(1).map(line => {
+    const vals = line.split(",").map(v => v.trim());
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = vals[i] || ""; });
+    const g = obj["車庫"];
+    const cap = parseInt(obj["容量"]) || 10;
+    if (g && !garages[g]) garages[g] = cap;
+    return { 車庫: obj["車庫"] || "", 廠牌: obj["廠牌"] || "", 車名: obj["車名"] || "", 備註: obj["備註"] || "" };
+  }).filter(v => v.車名);
+  return { vehicles, garages };
+}
+
+// ── sub-components ─────────────────────────────────────────────────────────
+function Toast({ toast }) {
   if (!toast) return null;
   const bg = toast.type === "err" ? C.red : toast.type === "warn" ? C.accentD : C.green;
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg shadow-2xl z-[300] flex items-center gap-2 animate-bounce"
-         style={{ background: bg, color: "#fff", fontWeight: 600 }}>
+    <div style={{ position:"fixed", bottom:24, left:"50%", transform:"translateX(-50%)", background:bg, color:"#000", padding:"10px 22px", fontWeight:800, fontSize:13, letterSpacing:2, borderRadius:4, zIndex:300, textTransform:"uppercase", boxShadow:"0 6px 24px #0009", animation:"fadeIn .2s ease", whiteSpace:"nowrap" }}>
       {toast.msg}
     </div>
   );
-};
+}
 
-const CapBar = ({ used, cap }) => {
+function CapBar({ used, cap }) {
   const pct = cap > 0 ? Math.min(used / cap, 1) : 0;
-  const color = pct >= 1 ? C.red : pct > 0.8 ? C.accentD : C.green;
+  const color = pct >= 1 ? C.red : pct > 0.7 ? C.accentD : C.green;
   return (
-    <div className="h-1 w-full bg-gray-800 rounded-full overflow-hidden mt-2 mb-4">
-      <div 
-        className="h-full transition-all duration-500" 
-        style={{ width: `${pct * 100}%`, backgroundColor: color }}
-      />
+    <div style={{ height:3, background:"#1a1a28", borderRadius:2, overflow:"hidden", marginBottom:14 }}>
+      <div style={{ height:"100%", width:`${pct*100}%`, background:color, borderRadius:2, transition:"width .4s" }} />
     </div>
   );
-};
+}
 
-const Modal = ({ title, children, onClose }) => (
-  <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-    <div className="bg-[#111118] border-t-4 border-[#f5c400] rounded-xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
-      <div className="flex justify-between items-center p-4 border-b border-gray-800">
-        <h3 className="text-[#f5c400] font-black uppercase tracking-widest text-sm">{title}</h3>
-        <button onClick={onClose} className="text-gray-500 hover:text-white"><Icon name="x" size={20}/></button>
+function Modal({ title, onClose, children }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"#000b", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
+      <div style={{ background:C.panel, borderTop:`3px solid ${C.accent}`, borderRadius:"12px 12px 0 0", width:"100%", maxWidth:520, padding:"24px 20px 36px", animation:"slideUp .25s ease" }} onClick={e => e.stopPropagation()}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+          <div style={{ fontFamily:"'Orbitron',sans-serif", fontSize:15, fontWeight:900, letterSpacing:3, color:C.accent, textTransform:"uppercase" }}>{title}</div>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:C.muted, fontSize:20, cursor:"pointer", lineHeight:1 }}>✕</button>
+        </div>
+        {children}
       </div>
-      <div className="p-6">{children}</div>
     </div>
-  </div>
-);
+  );
+}
 
-// --- 主程式 ---
+const inp = { background:"#16161f", border:`1px solid ${C.border}`, color:C.text, padding:"10px 12px", borderRadius:4, fontSize:14, outline:"none", width:"100%", fontFamily:"inherit" };
+const lbl = { fontSize:10, color:C.muted, letterSpacing:2, display:"block", marginBottom:5, textTransform:"uppercase" };
+const btnP = { background:C.accent, color:"#000", border:"none", padding:"11px 20px", fontWeight:900, fontSize:13, letterSpacing:2, cursor:"pointer", borderRadius:4, textTransform:"uppercase", flex:1 };
+const btnG = { background:"transparent", color:C.muted, border:`1px solid ${C.border}`, padding:"11px 16px", fontWeight:700, fontSize:12, letterSpacing:1, cursor:"pointer", borderRadius:4, textTransform:"uppercase" };
 
+// ── main app ───────────────────────────────────────────────────────────────
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [vehicles, setVehicles] = useState([]);
-  const [garages, setGarages] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState(null);
-  const [selected, setSelected] = useState(null);
-  const [search, setSearch] = useState("");
-  const [filterG, setFilterG] = useState("全部");
-  const [toast, setToast] = useState(null);
+  const [vehicles, setVehicles]   = useState([]);
+  const [garages, setGarages]     = useState({});   // { name: capacity }
+  const [loading, setLoading]     = useState(true);
+  const [modal, setModal]         = useState(null);  // 'add'|'move'|'garage'|'edit'
+  const [selected, setSelected]   = useState(null);
+  const [search, setSearch]       = useState("");
+  const [filterG, setFilterG]     = useState("全部");
+  const [toast, setToast]         = useState(null);
   const [moveTarget, setMoveTarget] = useState("");
-  const [form, setForm] = useState({ 車庫: "", 廠牌: "", 車名: "", 備註: "" });
-  const [newG, setNewG] = useState({ name: "", cap: 10 });
-
+  const [form, setForm]           = useState({ 車庫:"", 廠牌:"", 車名:"", 備註:"" });
+  const [newG, setNewG]           = useState({ name:"", cap:10 });
   const fileRef = useRef();
   const toastTimer = useRef();
 
-  // Firebase Auth 初始化
+  // ── Firestore listeners ──────────────────────────────────────────────────
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth Error", err);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
-
-  // Firestore 資料監聽
-  useEffect(() => {
-    if (!user) return;
-
-    const vCol = collection(db, 'artifacts', appId, 'public', 'data', 'vehicles');
-    const gCol = collection(db, 'artifacts', appId, 'public', 'data', 'garages');
-
-    const unsubV = onSnapshot(vCol, (snap) => {
+    const unsubV = onSnapshot(collection(db, "vehicles"), snap => {
       setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
-    }, (err) => {
-      console.error(err);
-      setLoading(false);
     });
-
-    const unsubG = onSnapshot(gCol, (snap) => {
+    const unsubG = onSnapshot(collection(db, "garages"), snap => {
       const g = {};
       snap.docs.forEach(d => { g[d.id] = d.data().capacity; });
       setGarages(g);
-    }, (err) => console.error(err));
-
+    });
     return () => { unsubV(); unsubG(); };
-  }, [user]);
+  }, []);
 
   const showToast = (msg, type = "ok") => {
     clearTimeout(toastTimer.current);
@@ -185,361 +122,261 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 2500);
   };
 
+  // ── Firestore writes ─────────────────────────────────────────────────────
   const addVehicle = async () => {
-    if (!form.車庫 || !form.車名.trim()) return showToast("請填寫車庫與車名", "err");
+    if (!form.車庫 || !form.車名.trim()) { showToast("請填寫車庫與車名", "err"); return; }
     const used = vehicles.filter(v => v.車庫 === form.車庫).length;
-    if (used >= (garages[form.車庫] || 10)) return showToast("車庫已滿！", "err");
-
-    try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'vehicles'), {
-        ...form,
-        createdAt: Date.now()
-      });
-      setModal(null);
-      setForm({ 車庫: "", 廠牌: "", 車名: "", 備註: "" });
-      showToast("車輛已新增");
-    } catch (e) { showToast("新增失敗", "err"); }
+    if (used >= (garages[form.車庫] || 10)) { showToast("車庫已滿！", "err"); return; }
+    await addDoc(collection(db, "vehicles"), { ...form, createdAt: Date.now() });
+    setModal(null); setForm({ 車庫:"", 廠牌:"", 車名:"", 備註:"" });
+    showToast("車輛已新增");
   };
 
   const saveEdit = async () => {
-    if (!selected || !form.車名.trim()) return showToast("車名不能為空", "err");
-    try {
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vehicles', selected.id), {
-        廠牌: form.廠牌,
-        車名: form.車名,
-        備註: form.備註
-      });
-      setModal(null); setSelected(null);
-      showToast("已儲存變更");
-    } catch (e) { showToast("儲存失敗", "err"); }
+    if (!selected || !form.車名.trim()) { showToast("車名不能為空", "err"); return; }
+    await updateDoc(doc(db, "vehicles", selected.id), { 廠牌:form.廠牌, 車名:form.車名, 備註:form.備註 });
+    setModal(null); setSelected(null);
+    showToast("已儲存");
   };
 
   const moveVehicle = async () => {
-    if (!moveTarget) return showToast("請選擇目標車庫", "err");
+    if (!moveTarget) { showToast("請選擇目標車庫", "err"); return; }
     const used = vehicles.filter(v => v.車庫 === moveTarget).length;
-    if (used >= (garages[moveTarget] || 10)) return showToast("目標車庫已滿", "err");
-
-    try {
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vehicles', selected.id), { 車庫: moveTarget });
-      setModal(null); setSelected(null); setMoveTarget("");
-      showToast(`已移至 ${moveTarget}`);
-    } catch (e) { showToast("移動失敗", "err"); }
+    if (used >= (garages[moveTarget] || 10)) { showToast("目標車庫已滿！", "err"); return; }
+    await updateDoc(doc(db, "vehicles", selected.id), { 車庫: moveTarget });
+    setModal(null); setSelected(null); setMoveTarget("");
+    showToast(`已移至 ${moveTarget}`);
   };
 
   const deleteVehicle = async (id) => {
-    if (!window.confirm("確定要刪除這輛車嗎？")) return;
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vehicles', id));
-      showToast("已刪除", "warn");
-    } catch (e) { showToast("刪除失敗", "err"); }
+    if (!window.confirm("確定要刪除這輛車？")) return;
+    await deleteDoc(doc(db, "vehicles", id));
+    if (selected?.id === id) setSelected(null);
+    showToast("已刪除", "warn");
   };
 
   const addGarage = async () => {
     const name = newG.name.trim();
-    if (!name) return showToast("請輸入車庫名稱", "err");
-    if (garages[name]) return showToast("車庫已存在", "err");
-
-    try {
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'garages', name), { capacity: newG.cap });
-      setModal(null); setNewG({ name: "", cap: 10 });
-      showToast(`${name} 已建立`);
-    } catch (e) { showToast("建立失敗", "err"); }
+    if (!name) { showToast("請輸入車庫名稱", "err"); return; }
+    if (garages[name] !== undefined) { showToast("車庫已存在", "err"); return; }
+    await setDoc(doc(db, "garages", name), { capacity: newG.cap });
+    setModal(null); setNewG({ name:"", cap:10 });
+    showToast(`${name} 已新增`);
   };
 
   const handleCSV = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const file = e.target.files[0]; if (!file) return;
     const text = await file.text();
-    const lines = text.trim().split("\n");
-    if (lines.length < 2) return showToast("無效的 CSV 格式", "err");
-
+    const { vehicles: vs, garages: gs } = parseCSV(text);
+    if (!vs.length) { showToast("CSV 格式錯誤", "err"); return; }
     const batch = writeBatch(db);
-    const rows = lines.slice(1);
-    
-    rows.forEach(line => {
-      const parts = line.split(",").map(s => s.trim());
-      const garage = parts[0] || "預設車庫";
-      const brand = parts[1] || "";
-      const name = parts[2] || "";
-      const note = parts[3] || "";
-      
-      if (name) {
-        const vRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'vehicles'));
-        batch.set(vRef, { 車庫: garage, 廠牌: brand, 車名: name, 備註: note, createdAt: Date.now() });
-        
-        if (!garages[garage]) {
-          const gRef = doc(db, 'artifacts', appId, 'public', 'data', 'garages', garage);
-          batch.set(gRef, { capacity: 10 });
-        }
-      }
+    // add garages
+    Object.entries(gs).forEach(([name, cap]) => {
+      if (garages[name] === undefined) batch.set(doc(db, "garages", name), { capacity: cap });
     });
-
-    try {
-      await batch.commit();
-      showToast(`已匯入 ${rows.length} 輛車`);
-    } catch (e) { showToast("匯入失敗", "err"); }
+    // add vehicles
+    vs.forEach(v => { batch.set(doc(collection(db, "vehicles")), { ...v, createdAt: Date.now() }); });
+    await batch.commit();
+    showToast(`匯入 ${vs.length} 輛車輛`);
     e.target.value = "";
   };
 
   const exportCSV = () => {
-    const header = "車庫,廠牌,車名,備註\n";
-    const content = vehicles.map(v => `${v.車庫},${v.廠牌},${v.車名},${v.備註}`).join("\n");
-    const blob = new Blob(["\uFEFF" + header + content], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `GTA_Vehicles_${new Date().toLocaleDateString()}.csv`;
-    link.click();
-    showToast("匯出完成");
+    const rows = vehicles.map(v => [v.車庫, v.廠牌, v.車名, v.備註].join(","));
+    const csv = ["車庫,廠牌,車名,備註", ...rows].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type:"text/csv;charset=utf-8" }));
+    a.download = "gta_garage.csv"; a.click();
+    showToast("已匯出");
   };
 
-  // --- 計算邏輯 ---
-  const garageNames = useMemo(() => Object.keys(garages).sort(), [garages]);
-  
-  const filteredVehicles = useMemo(() => {
-    return vehicles.filter(v => {
-      const matchS = !search || [v.車名, v.廠牌, v.備註].some(f => f?.toLowerCase().includes(search.toLowerCase()));
-      const matchG = filterG === "全部" || v.車庫 === filterG;
-      return matchS && matchG;
-    });
-  }, [vehicles, search, filterG]);
+  // ── derived data ──────────────────────────────────────────────────────────
+  const garageNames = Object.keys(garages).sort();
+  const filtered = vehicles.filter(v => {
+    const q = search.toLowerCase();
+    const matchS = !q || [v.車名, v.廠牌, v.備註].some(f => f?.toLowerCase().includes(q));
+    const matchG = filterG === "全部" || v.車庫 === filterG;
+    return matchS && matchG;
+  });
+  const byGarage = name => filtered.filter(v => v.車庫 === name);
+  const displayGarages = filterG === "全部" ? garageNames : garageNames.filter(g => g === filterG);
 
-  const displayGarages = useMemo(() => {
-    let list = filterG === "全部" ? garageNames : [filterG];
-    if (search) {
-      list = list.filter(g => filteredVehicles.some(v => v.車庫 === g));
-    }
-    return list;
-  }, [garageNames, filterG, search, filteredVehicles]);
-
-  const duplicates = useMemo(() => {
-    const counts = {};
-    vehicles.forEach(v => {
-      const k = (v.車名 || "").trim();
-      if (!k) return;
-      counts[k] = (counts[k] || []);
-      counts[k].push(v);
-    });
-    return Object.entries(counts).filter(([_, arr]) => arr.length > 1);
-  }, [vehicles]);
-
-  const inputStyle = "w-full bg-[#16161f] border border-gray-800 rounded-lg px-4 py-3 text-white focus:border-[#f5c400] outline-none transition-all mb-4";
-  const labelStyle = "text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-1 block";
-
+  // ── render ────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#09090e] text-[#ddddf0] font-sans">
-      {/* Header */}
-      <header className="sticky top-0 z-[100] bg-[#0d0d14] border-b-2 border-[#f5c400] p-4 flex justify-between items-center shadow-lg">
-        <div className="flex items-center gap-2">
-          <div className="bg-[#f5c400] text-black text-xs font-black px-2 py-1 rounded italic">GTA V</div>
-          <h1 className="font-black tracking-tighter text-xl italic uppercase">Garage <span className="text-[#f5c400]">Manager</span></h1>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => fileRef.current.click()} className="p-2 text-gray-400 hover:text-white transition-colors" title="匯入 CSV"><Icon name="upload" size={20}/></button>
-          <input type="file" ref={fileRef} className="hidden" accept=".csv" onChange={handleCSV} />
-          <button onClick={exportCSV} className="p-2 text-gray-400 hover:text-white transition-colors" title="匯出 CSV"><Icon name="download" size={20}/></button>
-          <button onClick={() => setModal("add")} className="bg-[#f5c400] text-black p-2 rounded-lg font-bold hover:bg-[#b38f00] transition-colors"><Icon name="plus" size={20}/></button>
-        </div>
-      </header>
+    <>
+      <style>{globalStyle}</style>
 
-      {/* Stats & Search */}
-      <div className="p-4 space-y-4">
-        <div className="flex gap-4">
-          <div className="flex-1 bg-[#111118] border border-gray-800 p-4 rounded-xl text-center shadow-lg shadow-black/50">
-            <div className="text-2xl font-black text-[#f5c400] leading-none">{vehicles.length}</div>
-            <div className="text-[10px] text-gray-500 uppercase mt-1 tracking-widest">總車輛</div>
-          </div>
-          <div className="flex-1 bg-[#111118] border border-gray-800 p-4 rounded-xl text-center shadow-lg shadow-black/50">
-            <div className="text-2xl font-black text-[#f5c400] leading-none">{garageNames.length}</div>
-            <div className="text-[10px] text-gray-500 uppercase mt-1 tracking-widest">車庫數</div>
-          </div>
+      {/* HEADER */}
+      <div style={{ background:"#0d0d14", borderBottom:`2px solid ${C.accent}`, padding:"12px 16px", position:"sticky", top:0, zIndex:100, display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+        <div style={{ fontFamily:"'Orbitron',sans-serif", fontSize:18, fontWeight:900, letterSpacing:3, color:C.accent }}>
+          GTA <span style={{ color:C.text }}>車庫</span>
+          <span style={{ background:C.accent, color:"#000", fontSize:9, fontWeight:900, padding:"2px 6px", borderRadius:2, marginLeft:8, letterSpacing:2, verticalAlign:"middle" }}>SYNC</span>
         </div>
-
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
-            <input 
-              className="w-full bg-[#111118] border border-gray-800 rounded-lg pl-10 pr-4 py-2 outline-none focus:border-[#f5c400] transition-colors"
-              placeholder="搜尋車名、廠牌..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <select 
-            className="bg-[#111118] border border-gray-800 rounded-lg px-3 py-2 outline-none focus:border-[#f5c400] transition-colors"
-            value={filterG}
-            onChange={(e) => setFilterG(e.target.value)}
-          >
-            <option>全部</option>
-            {garageNames.map(g => <option key={g}>{g}</option>)}
-          </select>
-        </div>
-
-        <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-           <button 
-            onClick={() => setModal("dupes")}
-            className="flex-none flex items-center gap-1 text-xs font-bold border border-gray-800 px-3 py-1.5 rounded-full hover:bg-gray-800 transition-colors"
-           >
-            <Icon name="alert" size={14} className={duplicates.length ? "text-red-500" : "text-gray-500"}/> 
-            重複檢查 {duplicates.length > 0 && <span className="bg-red-500 text-white px-1.5 rounded-full text-[10px] ml-1">{duplicates.length}</span>}
-           </button>
-           <button 
-            onClick={() => setModal("garage")}
-            className="flex-none flex items-center gap-1 text-xs font-bold border border-gray-800 px-3 py-1.5 rounded-full hover:bg-gray-800 transition-colors"
-           >
-            <Icon name="package" size={14} className="text-gray-500"/> 建立車庫
-           </button>
+        <div style={{ display:"flex", gap:6 }}>
+          <button style={{ ...btnG, padding:"7px 10px", fontSize:11 }} onClick={() => fileRef.current.click()}>匯入</button>
+          <input ref={fileRef} type="file" accept=".csv" style={{ display:"none" }} onChange={handleCSV} />
+          <button style={{ ...btnG, padding:"7px 10px", fontSize:11 }} onClick={exportCSV}>匯出</button>
+          <button style={{ ...btnP, flex:"none", padding:"7px 12px", fontSize:12 }} onClick={() => { setForm({ 車庫:garageNames[0]||"", 廠牌:"", 車名:"", 備註:"" }); setModal("add"); }}>＋ 新增</button>
         </div>
       </div>
 
-      {/* Garage List */}
-      <main className="p-4 space-y-8 pb-24">
-        {loading ? (
-          <div className="py-20 text-center text-gray-600 animate-pulse tracking-widest font-black uppercase italic">載入車庫資料中...</div>
-        ) : displayGarages.length === 0 ? (
-          <div className="py-20 text-center text-gray-600">無符合條件的車庫數據</div>
-        ) : displayGarages.map(garage => {
-          const cars = filteredVehicles.filter(v => v.車庫 === garage);
-          const cap = garages[garage] || 10;
-          const usedInThisGarage = vehicles.filter(v => v.車庫 === garage).length;
-          const emptySlotsCount = Math.max(0, cap - usedInThisGarage);
+      {/* TOOLBAR */}
+      <div style={{ padding:"10px 16px", display:"flex", gap:8, borderBottom:`1px solid ${C.border}`, background:C.panel }}>
+        <input style={{ ...inp, flex:1 }} placeholder="搜尋車名、廠牌…" value={search} onChange={e => setSearch(e.target.value)} />
+        <select style={{ ...inp, width:"auto", minWidth:110 }} value={filterG} onChange={e => setFilterG(e.target.value)}>
+          <option>全部</option>
+          {garageNames.map(g => <option key={g}>{g}</option>)}
+        </select>
+        <button style={{ ...btnG, padding:"8px 10px", fontSize:11, whiteSpace:"nowrap" }} onClick={() => setModal("garage")}>＋ 車庫</button>
+      </div>
 
-          return (
-            <div key={garage} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="flex justify-between items-end mb-2">
-                <h2 className="font-black italic text-lg tracking-tight uppercase flex items-center gap-2">
-                  <Icon name="chevron" size={18} className="text-[#f5c400]"/> {garage}
-                </h2>
-                <span className={`text-[10px] font-bold ${usedInThisGarage >= cap ? 'text-red-500' : 'text-gray-500'}`}>
-                  {usedInThisGarage} / {cap} 容納
-                </span>
-              </div>
-              <CapBar used={usedInThisGarage} cap={cap} />
-              <div className="grid gap-2">
-                {cars.map((v, i) => (
-                  <div key={v.id} className="group bg-[#111118] border border-gray-800 p-3 rounded-lg flex items-center gap-4 hover:border-gray-600 transition-all shadow-md">
-                    <div className="text-[10px] font-mono text-gray-700 w-4">{i + 1}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold truncate text-sm">{v.車名}</div>
-                      <div className="flex gap-2 mt-1 overflow-x-auto no-scrollbar">
-                        {v.廠牌 && <span className="flex-none text-[9px] bg-black/40 border border-gray-800 px-1.5 py-0.5 rounded text-gray-500 uppercase">{v.廠牌}</span>}
-                        {v.備註 && <span className="flex-none text-[9px] text-gray-600 italic whitespace-nowrap">{v.備註}</span>}
-                      </div>
-                    </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => { setSelected(v); setForm(v); setModal("edit"); }} className="p-1.5 hover:text-[#f5c400] transition-colors"><Icon name="edit" size={14}/></button>
-                      <button onClick={() => { setSelected(v); setModal("move"); }} className="p-1.5 hover:text-blue-400 transition-colors"><Icon name="move" size={14}/></button>
-                      <button onClick={() => deleteVehicle(v.id)} className="p-1.5 hover:text-red-500 transition-colors"><Icon name="trash" size={14}/></button>
-                    </div>
-                  </div>
-                ))}
-                {emptySlotsCount > 0 && Array.from({ length: Math.min(emptySlotsCount, 5) }).map((_, i) => (
-                  <div key={`empty-${i}`} className="border border-dashed border-gray-900 h-10 rounded-lg flex items-center justify-center text-[10px] text-gray-800 tracking-widest font-bold uppercase select-none">
-                    空車位
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </main>
-
-      {/* Modals */}
-      {modal === "add" && (
-        <Modal title="新增車輛" onClose={() => setModal(null)}>
-          <label className={labelStyle}>選擇車庫</label>
-          <select className={inputStyle} value={form.車庫} onChange={e => setForm({...form, 車庫: e.target.value})}>
-            <option value="">-- 選擇車庫 --</option>
-            {garageNames.map(g => (
-              <option key={g} value={g}>{g} ({vehicles.filter(v=>v.車庫===g).length}/{garages[g]})</option>
-            ))}
-          </select>
-          <label className={labelStyle}>廠牌</label>
-          <input className={inputStyle} value={form.廠牌} onChange={e => setForm({...form, 廠牌: e.target.value})} placeholder="例如: Pegassi"/>
-          <label className={labelStyle}>車名</label>
-          <input className={inputStyle} value={form.車名} onChange={e => setForm({...form, 車名: e.target.value})} placeholder="例如: Zentorno"/>
-          <label className={labelStyle}>備註</label>
-          <input className={inputStyle} value={form.備註} onChange={e => setForm({...form, 備註: e.target.value})} placeholder="自訂標記..."/>
-          <button onClick={addVehicle} className="w-full bg-[#f5c400] text-black font-black py-3 rounded-lg uppercase tracking-widest hover:bg-white transition-colors shadow-lg shadow-[#f5c400]/20">確認新增</button>
-        </Modal>
-      )}
-
-      {modal === "edit" && (
-        <Modal title="編輯車輛" onClose={() => setModal(null)}>
-          <label className={labelStyle}>廠牌</label>
-          <input className={inputStyle} value={form.廠牌} onChange={e => setForm({...form, 廠牌: e.target.value})}/>
-          <label className={labelStyle}>車名</label>
-          <input className={inputStyle} value={form.車名} onChange={e => setForm({...form, 車名: e.target.value})}/>
-          <label className={labelStyle}>備註</label>
-          <input className={inputStyle} value={form.備註} onChange={e => setForm({...form, 備註: e.target.value})}/>
-          <button onClick={saveEdit} className="w-full bg-[#f5c400] text-black font-black py-3 rounded-lg uppercase tracking-widest hover:bg-white transition-colors">儲存變更</button>
-        </Modal>
-      )}
-
-      {modal === "move" && selected && (
-        <Modal title="移動車輛" onClose={() => setModal(null)}>
-          <div className="bg-black/40 p-3 rounded-lg mb-6 border border-gray-800 shadow-inner">
-            <div className="text-xs text-gray-500 uppercase mb-1">正在移動</div>
-            <div className="font-bold text-[#f5c400]">{selected.車名}</div>
-            <div className="text-[10px] text-gray-600 mt-1 uppercase tracking-tighter">目前位置: {selected.車庫}</div>
+      {/* STATS ROW */}
+      <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${C.border}`, overflowX:"auto" }}>
+        {[{ label:"車輛", val:vehicles.length }, { label:"車庫", val:garageNames.length }, { label:"顯示", val:filtered.length }].map(s => (
+          <div key={s.label} style={{ flex:1, padding:"10px 0", textAlign:"center", borderRight:`1px solid ${C.border}` }}>
+            <div style={{ fontFamily:"'Orbitron',sans-serif", fontSize:20, fontWeight:900, color:C.accent }}>{s.val}</div>
+            <div style={{ fontSize:10, color:C.muted, letterSpacing:2 }}>{s.label}</div>
           </div>
-          <label className={labelStyle}>目標車庫</label>
-          <select className={inputStyle} value={moveTarget} onChange={e => setMoveTarget(e.target.value)}>
-            <option value="">-- 選擇目標 --</option>
-            {garageNames.filter(g => g !== selected.車庫).map(g => {
-              const full = vehicles.filter(v => v.車庫 === g).length >= (garages[g] || 10);
-              return <option key={g} value={g} disabled={full}>{g} {full ? '(已滿)' : ''}</option>;
-            })}
-          </select>
-          <button onClick={moveVehicle} className="w-full bg-[#f5c400] text-black font-black py-3 rounded-lg uppercase tracking-widest hover:bg-white transition-colors shadow-lg shadow-[#f5c400]/20">確認移動</button>
-        </Modal>
-      )}
+        ))}
+      </div>
 
-      {modal === "garage" && (
-        <Modal title="新增車庫" onClose={() => setModal(null)}>
-          <label className={labelStyle}>車庫名稱</label>
-          <input className={inputStyle} value={newG.name} onChange={e => setNewG({...newG, name: e.target.value})} placeholder="例如: 艾爾塔街公寓 10 號"/>
-          <label className={labelStyle}>容量 (格數)</label>
-          <input type="number" className={inputStyle} value={newG.cap} onChange={e => setNewG({...newG, cap: parseInt(e.target.value) || 0})}/>
-          <button onClick={addGarage} className="w-full bg-[#f5c400] text-black font-black py-3 rounded-lg uppercase tracking-widest hover:bg-white transition-colors">建立車庫</button>
-        </Modal>
-      )}
+      {/* CONTENT */}
+      <div style={{ padding:"16px", paddingBottom:80 }}>
+        {loading && <div style={{ textAlign:"center", color:C.muted, padding:40, letterSpacing:2 }}>載入中…</div>}
 
-      {modal === "dupes" && (
-        <Modal title="重複車輛報告" onClose={() => setModal(null)}>
-          <div className="max-h-[60vh] overflow-y-auto space-y-4 pr-2 custom-scrollbar">
-            {duplicates.length === 0 ? (
-              <div className="text-center py-10 text-gray-600 italic">尚未發現重複的車輛</div>
-            ) : duplicates.map(([name, list]) => (
-              <div key={name} className="border border-gray-800 rounded-lg p-3 bg-black/20">
-                <div className="flex justify-between items-center mb-2">
-                  <div className="font-bold text-[#f5c400] text-sm uppercase">{name}</div>
-                  <div className="text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded font-black italic shadow-sm">{list.length}x</div>
-                </div>
-                <div className="space-y-1">
-                  {list.map(v => (
-                    <div key={v.id} className="text-[10px] flex justify-between text-gray-500 border-t border-gray-900 pt-1.5 mt-1.5">
-                      <span className="font-bold">{v.車庫}</span>
-                      <span className="italic opacity-50 truncate max-w-[50%]">{v.備註 || "-"}</span>
+        {!loading && displayGarages.length === 0 && (
+          <div style={{ textAlign:"center", color:C.muted, padding:40 }}>
+            <div style={{ fontSize:32, marginBottom:12 }}>🏚️</div>
+            <div style={{ letterSpacing:2 }}>尚無車庫，點右上角「＋ 車庫」新增</div>
+          </div>
+        )}
+
+        {displayGarages.map(garage => {
+          const cars = byGarage(garage);
+          const cap = garages[garage] || 10;
+          const used = vehicles.filter(v => v.車庫 === garage).length;
+          return (
+            <div key={garage} style={{ marginBottom:28, animation:"fadeIn .3s ease" }}>
+              {/* garage header */}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:6 }}>
+                <div style={{ fontFamily:"'Orbitron',sans-serif", fontSize:13, fontWeight:900, letterSpacing:3, color:C.accent, textTransform:"uppercase" }}>{garage}</div>
+                <span style={{ fontSize:11, color: used >= cap ? C.red : C.muted, fontWeight:700, letterSpacing:1 }}>{used}/{cap} 格</span>
+              </div>
+              <CapBar used={used} cap={cap} />
+
+              {cars.length === 0 ? (
+                <div style={{ color:C.muted, fontSize:12, padding:"8px 0", letterSpacing:1 }}>— 無符合車輛 —</div>
+              ) : (
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {cars.map((v, i) => (
+                    <div key={v.id} style={{ background:C.panel, border:`1px solid ${C.border}`, borderRadius:6, padding:"10px 12px", display:"flex", alignItems:"center", gap:10, animation:"fadeIn .2s ease" }}>
+                      <div style={{ color:C.muted, fontSize:11, width:20, textAlign:"center", flexShrink:0 }}>{i+1}</div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:700, fontSize:14, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{v.車名}</div>
+                        <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>
+                          {v.廠牌 && <span style={{ background:"#1a1a28", border:`1px solid ${C.border}`, padding:"1px 6px", borderRadius:2, marginRight:6, letterSpacing:1 }}>{v.廠牌}</span>}
+                          {v.備註 && <span>{v.備註}</span>}
+                        </div>
+                      </div>
+                      <div style={{ display:"flex", gap:5, flexShrink:0 }}>
+                        <button style={{ ...btnG, padding:"5px 9px", fontSize:11 }} onClick={() => { setSelected(v); setForm({ 廠牌:v.廠牌, 車名:v.車名, 備註:v.備註 }); setModal("edit"); }}>編輯</button>
+                        <button style={{ ...btnG, padding:"5px 9px", fontSize:11 }} onClick={() => { setSelected(v); setMoveTarget(""); setModal("move"); }}>移動</button>
+                        <button style={{ ...btnG, padding:"5px 9px", fontSize:11, color:C.red, borderColor:`${C.red}44` }} onClick={() => deleteVehicle(v.id)}>✕</button>
+                      </div>
                     </div>
                   ))}
                 </div>
-              </div>
-            ))}
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── MODALS ── */}
+
+      {/* Add Vehicle */}
+      {modal === "add" && (
+        <Modal title="新增車輛" onClose={() => setModal(null)}>
+          {[["車庫", true], ["廠牌", false], ["車名", false], ["備註", false]].map(([field, isSelect]) => (
+            <div key={field} style={{ marginBottom:14 }}>
+              <label style={lbl}>{field}</label>
+              {isSelect ? (
+                <select style={inp} value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}>
+                  <option value="">— 選擇車庫 —</option>
+                  {garageNames.map(g => { const used = vehicles.filter(v => v.車庫===g).length; return <option key={g} value={g}>{g} ({used}/{garages[g]})</option>; })}
+                </select>
+              ) : (
+                <input style={inp} value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} placeholder={field === "車名" ? "必填" : "選填"} />
+              )}
+            </div>
+          ))}
+          <div style={{ display:"flex", gap:8, marginTop:8 }}>
+            <button style={btnP} onClick={addVehicle}>確認新增</button>
+            <button style={btnG} onClick={() => setModal(null)}>取消</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Edit Vehicle */}
+      {modal === "edit" && selected && (
+        <Modal title="編輯車輛" onClose={() => setModal(null)}>
+          {["廠牌","車名","備註"].map(field => (
+            <div key={field} style={{ marginBottom:14 }}>
+              <label style={lbl}>{field}</label>
+              <input style={inp} value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} />
+            </div>
+          ))}
+          <div style={{ display:"flex", gap:8, marginTop:8 }}>
+            <button style={btnP} onClick={saveEdit}>儲存</button>
+            <button style={btnG} onClick={() => setModal(null)}>取消</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Move Vehicle */}
+      {modal === "move" && selected && (
+        <Modal title="移動車輛" onClose={() => setModal(null)}>
+          <div style={{ marginBottom:16, padding:"10px 12px", background:"#16161f", borderRadius:4, fontSize:13 }}>
+            <span style={{ color:C.accent, fontWeight:700 }}>{selected.車名}</span>
+            <span style={{ color:C.muted }}> · 目前在 {selected.車庫}</span>
+          </div>
+          <div style={{ marginBottom:16 }}>
+            <label style={lbl}>目標車庫</label>
+            <select style={inp} value={moveTarget} onChange={e => setMoveTarget(e.target.value)}>
+              <option value="">— 選擇目標 —</option>
+              {garageNames.filter(g => g !== selected.車庫).map(g => {
+                const used = vehicles.filter(v => v.車庫===g).length;
+                const full = used >= (garages[g]||10);
+                return <option key={g} value={g} disabled={full}>{g} ({used}/{garages[g]}){full?" ✗ 已滿":""}</option>;
+              })}
+            </select>
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            <button style={btnP} onClick={moveVehicle}>確認移動</button>
+            <button style={btnG} onClick={() => setModal(null)}>取消</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Add Garage */}
+      {modal === "garage" && (
+        <Modal title="新增車庫" onClose={() => setModal(null)}>
+          <div style={{ marginBottom:14 }}>
+            <label style={lbl}>車庫名稱</label>
+            <input style={inp} value={newG.name} onChange={e => setNewG(g => ({ ...g, name: e.target.value }))} placeholder="例：Vespucci Canals" />
+          </div>
+          <div style={{ marginBottom:16 }}>
+            <label style={lbl}>容量（格數）</label>
+            <input type="number" min={1} max={40} style={inp} value={newG.cap} onChange={e => setNewG(g => ({ ...g, cap: Number(e.target.value) }))} />
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            <button style={btnP} onClick={addGarage}>確認新增</button>
+            <button style={btnG} onClick={() => setModal(null)}>取消</button>
           </div>
         </Modal>
       )}
 
       <Toast toast={toast} />
-      
-      <style>{`
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #444; }
-      `}</style>
-    </div>
+    </>
   );
 }
